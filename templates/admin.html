@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理画面 | Avatar Video Generator</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #0f0f1a; color: #e2e8f0; }
+  .header {
+    background: #13131f; border-bottom: 1px solid #2a2a3e;
+    padding: 0 24px; height: 60px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .header-title { font-size: 18px; font-weight: 700; color: #fff; }
+  .nav-links { display: flex; gap: 16px; }
+  .nav-links a {
+    color: #94a3b8; text-decoration: none; font-size: 14px;
+    padding: 6px 12px; border: 1px solid #3f3f5a; border-radius: 6px; transition: all 0.2s;
+  }
+  .nav-links a:hover { color: #e2e8f0; border-color: #6366f1; }
+  .container { max-width: 1000px; margin: 0 auto; padding: 32px 24px; }
+  .card {
+    background: #1e1e2e; border: 1px solid #2a2a3e;
+    border-radius: 12px; padding: 24px 28px; margin-bottom: 28px;
+  }
+  .card h2 { font-size: 16px; font-weight: 700; margin-bottom: 20px; color: #fff; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  label { display: block; font-size: 12px; color: #94a3b8; font-weight: 600; margin-bottom: 5px; margin-top: 12px; }
+  input[type="text"], input[type="password"], select {
+    width: 100%; padding: 10px 14px;
+    background: #252538; border: 1px solid #3f3f5a;
+    border-radius: 7px; color: #e2e8f0; font-size: 14px; outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus, select:focus { border-color: #6366f1; }
+  .btn {
+    padding: 10px 20px; border: none; border-radius: 7px;
+    font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.2s;
+  }
+  .btn-primary { background: #6366f1; color: #fff; }
+  .btn-primary:hover { background: #4f46e5; }
+  .btn-sm { padding: 5px 12px; font-size: 12px; }
+  .btn-danger { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+  .btn-danger:hover { background: rgba(239,68,68,0.25); }
+  .btn-success { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+  .btn-success:hover { background: rgba(16,185,129,0.25); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; color: #94a3b8; font-size: 12px; font-weight: 600;
+       padding: 8px 12px; border-bottom: 1px solid #2a2a3e; }
+  td { padding: 10px 12px; border-bottom: 1px solid #1a1a2a; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+  .badge-active   { background: rgba(16,185,129,0.15); color: #10b981; }
+  .badge-inactive { background: rgba(239,68,68,0.15);  color: #ef4444; }
+  .badge-admin    { background: rgba(99,102,241,0.2);  color: #818cf8; }
+  .flash {
+    background: rgba(16,185,129,0.1); border: 1px solid #10b981;
+    border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 14px; color: #10b981;
+  }
+  select.plan-select { width: auto; padding: 4px 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header class="header">
+  <div class="header-title">⚙ 管理画面</div>
+  <div class="nav-links">
+    <a href="/admin/usage">使用量レポート</a>
+    <a href="/dashboard">ダッシュボードへ</a>
+    <a href="/logout">ログアウト</a>
+  </div>
+</header>
+
+<div class="container">
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}<div class="flash">{{ messages[0] }}</div>{% endif %}
+  {% endwith %}
+
+  <!-- APIキー設定 -->
+  <div class="card">
+    <h2>🔑 API設定</h2>
+    <form method="post" action="/admin/settings">
+      <div class="grid-2">
+        <div>
+          <label>ElevenLabs APIキー</label>
+          <input type="password" name="elevenlabs_api_key"
+                 value="{{ settings.elevenlabs_api_key }}" placeholder="sk-...">
+          <label>ElevenLabs ボイスID</label>
+          <input type="text" name="elevenlabs_voice_id"
+                 value="{{ settings.elevenlabs_voice_id }}" placeholder="ボイスIDを入力">
+        </div>
+        <div>
+          <label>HeyGen APIキー</label>
+          <input type="password" name="heygen_api_key"
+                 value="{{ settings.heygen_api_key }}" placeholder="HeyGen APIキー">
+          <label>HeyGen アバターID（デフォルト）</label>
+          <input type="text" name="heygen_avatar_id"
+                 value="{{ settings.heygen_avatar_id }}" placeholder="avatar_id">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary" style="margin-top:20px">保存する</button>
+    </form>
+  </div>
+
+  <!-- ユーザー追加 -->
+  <div class="card">
+    <h2>➕ ユーザーを追加</h2>
+    <form method="post" action="/admin/user/add">
+      <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+        <div>
+          <label>ユーザー名</label>
+          <input type="text" name="username" placeholder="username" style="width:180px">
+        </div>
+        <div>
+          <label>パスワード</label>
+          <input type="text" name="password" placeholder="初期パスワード" style="width:180px">
+        </div>
+        <div>
+          <label>プラン</label>
+          <select name="plan" style="width:140px">
+            {% for key, p in plans.items() %}
+              {% if key != 'admin' %}
+                <option value="{{ key }}">{{ p.name }}（月{{ p.price }}円）</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary">追加</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ユーザー一覧 -->
+  <div class="card">
+    <h2>👤 ユーザー一覧</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ユーザー名</th>
+          <th>プラン</th>
+          <th>状態</th>
+          <th>作成日</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>
+            {{ u['username'] }}
+            {% if u['is_admin'] %}<span class="badge badge-admin" style="margin-left:6px">管理者</span>{% endif %}
+          </td>
+          <td>
+            <form method="post" action="/admin/user/{{ u['id'] }}/plan"
+                  style="display:inline-flex; gap:6px; align-items:center;">
+              <select name="plan" class="plan-select">
+                {% for key, p in plans.items() %}
+                  <option value="{{ key }}" {% if u['plan']==key %}selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn btn-sm btn-primary">変更</button>
+            </form>
+          </td>
+          <td>
+            <span class="badge {% if u['active'] %}badge-active{% else %}badge-inactive{% endif %}">
+              {% if u['active'] %}有効{% else %}無効{% endif %}
+            </span>
+          </td>
+          <td style="color:#94a3b8; font-size:12px;">{{ u['created_at'][:10] }}</td>
+          <td>
+            {% if not u['is_admin'] %}
+            <form method="post" action="/admin/user/{{ u['id'] }}/toggle" style="display:inline">
+              <button type="submit" class="btn btn-sm {% if u['active'] %}btn-danger{% else %}btn-success{% endif %}">
+                {% if u['active'] %}無効化{% else %}有効化{% endif %}
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ダッシュボード | Avatar Video Generator</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    background: #0f0f1a;
+    color: #e2e8f0;
+    min-height: 100vh;
+  }
+  /* ヘッダー */
+  .header {
+    background: #13131f;
+    border-bottom: 1px solid #2a2a3e;
+    padding: 0 24px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header-title { font-size: 18px; font-weight: 700; color: #fff; }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .header-user { font-size: 14px; color: #94a3b8; }
+  .header-plan {
+    background: #6366f1;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+  .btn-logout {
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 13px;
+    padding: 6px 12px;
+    border: 1px solid #3f3f5a;
+    border-radius: 6px;
+    transition: all 0.2s;
+  }
+  .btn-logout:hover { color: #e2e8f0; border-color: #6366f1; }
+  /* レイアウト */
+  .container { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+  /* 使用量バー */
+  .usage-card {
+    background: #1e1e2e;
+    border: 1px solid #2a2a3e;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+  }
+  .usage-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .usage-title { font-size: 13px; color: #94a3b8; font-weight: 600; }
+  .usage-num { font-size: 14px; color: #e2e8f0; }
+  .usage-num span { color: #6366f1; font-weight: 700; }
+  .bar-bg { background: #2a2a3e; border-radius: 99px; height: 8px; overflow: hidden; }
+  .bar-fill {
+    background: linear-gradient(90deg, #6366f1, #818cf8);
+    height: 100%;
+    border-radius: 99px;
+    transition: width 0.5s ease;
+  }
+  .bar-fill.warning { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+  .bar-fill.danger  { background: linear-gradient(90deg, #ef4444, #f87171); }
+  /* メインカード */
+  .main-card {
+    background: #1e1e2e;
+    border: 1px solid #2a2a3e;
+    border-radius: 12px;
+    padding: 28px 28px;
+    margin-bottom: 24px;
+  }
+  .section-title { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 16px; }
+  textarea {
+    width: 100%;
+    background: #252538;
+    border: 1px solid #3f3f5a;
+    border-radius: 8px;
+    color: #e2e8f0;
+    font-size: 15px;
+    padding: 14px 16px;
+    resize: vertical;
+    min-height: 140px;
+    outline: none;
+    font-family: inherit;
+    line-height: 1.6;
+    transition: border-color 0.2s;
+  }
+  textarea:focus { border-color: #6366f1; }
+  .char-count { text-align: right; font-size: 12px; color: #94a3b8; margin-top: 6px; }
+  .char-count.over { color: #f87171; }
+  .btn-generate {
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 17px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 16px;
+    letter-spacing: 0.3px;
+  }
+  .btn-generate:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(99,102,241,0.4); }
+  .btn-generate:disabled { background: #3f3f5a; color: #64748b; cursor: not-allowed; transform: none; box-shadow: none; }
+  /* ステータス */
+  .status-box {
+    background: #252538;
+    border: 1px solid #3f3f5a;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 20px;
+    display: none;
+  }
+  .status-box.show { display: block; }
+  .status-text { font-size: 15px; color: #e2e8f0; text-align: center; }
+  .spinner {
+    display: inline-block;
+    width: 18px; height: 18px;
+    border: 2px solid #3f3f5a;
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .download-btn {
+    display: block;
+    text-align: center;
+    margin-top: 16px;
+    padding: 12px 24px;
+    background: #10b981;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 15px;
+    transition: background 0.2s;
+  }
+  .download-btn:hover { background: #059669; }
+  /* 履歴 */
+  .history-card {
+    background: #1e1e2e;
+    border: 1px solid #2a2a3e;
+    border-radius: 12px;
+    padding: 24px 28px;
+  }
+  .history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid #2a2a3e;
+    font-size: 14px;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-status { font-size: 12px; padding: 3px 8px; border-radius: 20px; font-weight: 600; }
+  .s-completed { background: rgba(16,185,129,0.15); color: #10b981; }
+  .s-failed    { background: rgba(239,68,68,0.15);  color: #ef4444; }
+  .s-pending, .s-generating_audio, .s-uploading_audio,
+  .s-generating_video, .s-waiting { background: rgba(99,102,241,0.15); color: #818cf8; }
+  .history-link { color: #6366f1; text-decoration: none; font-size: 13px; }
+  .history-link:hover { text-decoration: underline; }
+  .empty-msg { color: #94a3b8; font-size: 14px; text-align: center; padding: 16px 0; }
+  /* 管理者リンク */
+  .admin-link {
+    display: inline-block;
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 13px;
+    margin-top: 16px;
+    border: 1px solid #3f3f5a;
+    padding: 6px 14px;
+    border-radius: 6px;
+    transition: all 0.2s;
+  }
+  .admin-link:hover { color: #e2e8f0; border-color: #6366f1; }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-title">🎬 Avatar Video Generator</div>
+  <div class="header-right">
+    <span class="header-user">{{ user['username'] }}</span>
+    <span class="header-plan">{{ plan['name'] }}</span>
+    {% if session.get('is_admin') %}
+      <a href="/admin" class="btn-logout">⚙ 管理</a>
+    {% endif %}
+    <a href="/logout" class="btn-logout">ログアウト</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- 使用量 -->
+  <div class="usage-card">
+    <div class="usage-header">
+      <span class="usage-title">今月の使用量（{{ plan['name'] }}プラン）</span>
+      <span class="usage-num">残り <span>{{ remaining }}分</span> / {{ limit_min }}分</span>
+    </div>
+    <div class="bar-bg">
+      <div class="bar-fill {% if percent >= 90 %}danger{% elif percent >= 70 %}warning{% endif %}"
+           style="width: {{ percent }}%"></div>
+    </div>
+  </div>
+
+  <!-- 動画生成 -->
+  <div class="main-card">
+    <div class="section-title">動画を生成する</div>
+    <textarea id="textInput" placeholder="ここにセリフを入力してください..."
+              maxlength="{{ max_chars }}"></textarea>
+    <div class="char-count" id="charCount">0 / {{ max_chars }}</div>
+    <button class="btn-generate" id="generateBtn"
+            {% if remaining <= 0 %}disabled{% endif %}
+            onclick="startGenerate()">
+      {% if remaining <= 0 %}
+        ⚠️ 今月の上限に達しています
+      {% else %}
+        ▶ 動画を生成する
+      {% endif %}
+    </button>
+
+    <div class="status-box" id="statusBox">
+      <div class="status-text" id="statusText">
+        <span class="spinner"></span>準備中...
+      </div>
+      <a id="downloadLink" class="download-btn" style="display:none" target="_blank">
+        ⬇ 動画をダウンロード
+      </a>
+    </div>
+  </div>
+
+  <!-- 履歴 -->
+  <div class="history-card">
+    <div class="section-title">生成履歴（直近10件）</div>
+    {% if jobs %}
+      {% for job in jobs %}
+      <div class="history-item">
+        <div>
+          <span class="history-status s-{{ job['status'] }}">
+            {% if job['status'] == 'completed' %}完成
+            {% elif job['status'] == 'failed' %}失敗
+            {% else %}処理中
+            {% endif %}
+          </span>
+          <span style="margin-left:10px; color:#94a3b8; font-size:12px;">{{ job['created_at'] }}</span>
+        </div>
+        {% if job['video_url'] %}
+          <a href="{{ job['video_url'] }}" class="history-link" target="_blank">ダウンロード</a>
+        {% elif job['error'] %}
+          <span style="color:#f87171; font-size:12px;">{{ job['error'][:40] }}</span>
+        {% else %}
+          <span style="color:#94a3b8; font-size:12px;">-</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="empty-msg">まだ動画が生成されていません</p>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+const maxChars = {{ max_chars }};
+let currentJobId = null;
+let pollTimer = null;
+
+document.getElementById('textInput').addEventListener('input', function() {
+  const len = this.value.length;
+  const el = document.getElementById('charCount');
+  el.textContent = `${len.toLocaleString()} / ${maxChars.toLocaleString()}`;
+  el.className = 'char-count' + (len > maxChars ? ' over' : '');
+});
+
+async function startGenerate() {
+  const text = document.getElementById('textInput').value.trim();
+  if (!text) { alert('テキストを入力してください'); return; }
+
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true;
+
+  const box = document.getElementById('statusBox');
+  box.classList.add('show');
+  setStatus('準備中...');
+  document.getElementById('downloadLink').style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('text', text);
+
+  try {
+    const res = await fetch('/generate', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error); btn.disabled = false; return; }
+    currentJobId = data.job_id;
+    pollStatus();
+  } catch(e) {
+    showError('通信エラーが発生しました');
+    btn.disabled = false;
+  }
+}
+
+function setStatus(msg) {
+  document.getElementById('statusText').innerHTML =
+    `<span class="spinner"></span>${msg}`;
+}
+
+function showError(msg) {
+  document.getElementById('statusText').innerHTML =
+    `<span style="color:#f87171">❌ ${msg}</span>`;
+}
+
+function pollStatus() {
+  if (!currentJobId) return;
+  fetch(`/job/${currentJobId}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'completed') {
+        document.getElementById('statusText').innerHTML = '✅ 動画が完成しました！';
+        const dl = document.getElementById('downloadLink');
+        dl.href = data.video_url;
+        dl.style.display = 'block';
+        document.getElementById('generateBtn').disabled = false;
+        location.reload(); // 履歴を更新
+      } else if (data.status === 'failed') {
+        showError(data.error || '不明なエラー');
+        document.getElementById('generateBtn').disabled = false;
+      } else {
+        setStatus(data.message);
+        setTimeout(pollStatus, 3000);
+      }
+    })
+    .catch(() => setTimeout(pollStatus, 5000));
+}
+</script>
+</body>
+</html>
