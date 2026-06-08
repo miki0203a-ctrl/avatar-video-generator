@@ -27,7 +27,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ── プラン定義（クレジット制）────────────────────────────────
 PLANS = {
     "trial":    {"name": "お試し",       "minutes": 30,   "price": 2980},
-    "standard": {"name": "スタンダード", "minutes": 150,  "price": 9800},
+    "standard": {"name": "スタンダード", "minutes": 60,   "price": 9800},
     "pro":      {"name": "プロ",         "minutes": 450,  "price": 24800},
     "admin":    {"name": "管理者",       "minutes": 99999,"price": 0},
 }
