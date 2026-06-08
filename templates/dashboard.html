@@ -200,16 +200,22 @@
 
 <div class="container">
 
-  <!-- 使用量 -->
+  <!-- クレジット残高 -->
   <div class="usage-card">
     <div class="usage-header">
-      <span class="usage-title">今月の使用量（{{ plan['name'] }}プラン）</span>
+      <span class="usage-title">クレジット残高</span>
       <span class="usage-num">残り <span>{{ remaining }}分</span> / {{ limit_min }}分</span>
     </div>
     <div class="bar-bg">
       <div class="bar-fill {% if percent >= 90 %}danger{% elif percent >= 70 %}warning{% endif %}"
            style="width: {{ percent }}%"></div>
     </div>
+    {% if expires_at %}
+    <div style="font-size:12px; color:#94a3b8; margin-top:8px;">有効期限：{{ expires_at[:10] }}</div>
+    {% endif %}
+    {% if remaining <= 0 and not session.get('is_admin') %}
+    <div style="font-size:13px; color:#f87171; margin-top:8px;">⚠️ クレジットが不足しています。管理者にお問い合わせください。</div>
+    {% endif %}
   </div>
 
   <!-- 動画生成 -->

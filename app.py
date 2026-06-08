@@ -1,13 +1,13 @@
 """
-Avatar Video Generator - Web App (Phase 1)
+Avatar Video Generator - Web App
 Flask + HeyGen + ElevenLabs
+クレジット制（購入日から180日有効）
 """
 
 from flask import (Flask, render_template, request, jsonify,
-                   redirect, url_for, session, send_file, flash)
+                   redirect, url_for, session, flash)
 from functools import wraps
 import sqlite3, os, json, time, threading, uuid, urllib.request, urllib.error
-import urllib.parse
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -20,15 +20,16 @@ DB_PATH     = os.path.join(BASE_DIR, "data.db")
 UPLOAD_DIR  = os.path.join(BASE_DIR, "uploads")
 ALLOWED_EXT = {"png", "jpg", "jpeg", "webp"}
 MAX_CHARS   = 3000
+CREDIT_DAYS = 180  # 購入日から有効日数
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# ── プラン定義 ────────────────────────────────────────────────
+# ── プラン定義（クレジット制）────────────────────────────────
 PLANS = {
-    "light":    {"name": "ライト",       "minutes": 10,  "price": 980},
-    "standard": {"name": "スタンダード", "minutes": 30,  "price": 2980},
-    "heavy":    {"name": "ヘビー",       "minutes": 150, "price": 12800},
-    "admin":    {"name": "管理者",       "minutes": 9999,"price": 0},
+    "starter":  {"name": "スターター",   "minutes": 30,   "price": 9800},
+    "standard": {"name": "スタンダード", "minutes": 100,  "price": 24800},
+    "pro":      {"name": "プロ",         "minutes": 300,  "price": 59800},
+    "admin":    {"name": "管理者",       "minutes": 99999,"price": 0},
 }
 
 # ── DB初期化 ──────────────────────────────────────────────────
@@ -41,20 +42,29 @@ def init_db():
     with get_db() as db:
         db.executescript("""
         CREATE TABLE IF NOT EXISTS users (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            username    TEXT UNIQUE NOT NULL,
-            password    TEXT NOT NULL,
-            plan        TEXT NOT NULL DEFAULT 'light',
-            is_admin    INTEGER NOT NULL DEFAULT 0,
-            active      INTEGER NOT NULL DEFAULT 1,
-            created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-            note        TEXT DEFAULT ''
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            username        TEXT UNIQUE NOT NULL,
+            password        TEXT NOT NULL,
+            plan            TEXT NOT NULL DEFAULT 'starter',
+            is_admin        INTEGER NOT NULL DEFAULT 0,
+            active          INTEGER NOT NULL DEFAULT 1,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            note            TEXT DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS credits (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         INTEGER NOT NULL,
+            minutes_total   REAL NOT NULL DEFAULT 0,
+            minutes_used    REAL NOT NULL DEFAULT 0,
+            purchased_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            expires_at      TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS usage_log (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id     INTEGER NOT NULL,
             seconds     REAL NOT NULL,
             video_id    TEXT,
+            credit_id   INTEGER,
             created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
         CREATE TABLE IF NOT EXISTS jobs (
@@ -94,16 +104,63 @@ def set_setting(key, value):
         db.execute("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", (key, value))
         db.commit()
 
-def get_used_minutes(user_id):
-    """今月の使用分数を返す"""
-    month_start = datetime.now().strftime("%Y-%m-01")
+def get_credit_info(user_id):
+    """ユーザーの有効クレジット情報を返す（期限内のもの合計）"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as db:
-        row = db.execute(
-            "SELECT COALESCE(SUM(seconds),0) as total FROM usage_log "
-            "WHERE user_id=? AND created_at >= ?",
-            (user_id, month_start)
-        ).fetchone()
-    return row["total"] / 60.0
+        rows = db.execute(
+            "SELECT * FROM credits WHERE user_id=? AND expires_at > ? AND minutes_used < minutes_total",
+            (user_id, now)
+        ).fetchall()
+    total = sum(r["minutes_total"] for r in rows)
+    used  = sum(r["minutes_used"]  for r in rows)
+    # 最も近い期限
+    nearest_expiry = None
+    if rows:
+        nearest_expiry = min(r["expires_at"] for r in rows)
+    return {
+        "total": total,
+        "used": used,
+        "remaining": max(0, total - used),
+        "expires_at": nearest_expiry,
+        "credits": rows,
+    }
+
+def add_credit(user_id, minutes, days=CREDIT_DAYS):
+    """クレジットを追加する"""
+    purchased_at = datetime.now()
+    expires_at   = purchased_at + timedelta(days=days)
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO credits (user_id, minutes_total, minutes_used, purchased_at, expires_at) VALUES (?,?,0,?,?)",
+            (user_id, minutes,
+             purchased_at.strftime("%Y-%m-%d %H:%M:%S"),
+             expires_at.strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        db.commit()
+
+def use_credit(user_id, minutes_used):
+    """クレジットを消費する（期限が近いものから消費）"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT * FROM credits WHERE user_id=? AND expires_at > ? AND minutes_used < minutes_total ORDER BY expires_at ASC",
+            (user_id, now)
+        ).fetchall()
+        remaining = minutes_used
+        for row in rows:
+            available = row["minutes_total"] - row["minutes_used"]
+            if available <= 0:
+                continue
+            consume = min(available, remaining)
+            db.execute(
+                "UPDATE credits SET minutes_used = minutes_used + ? WHERE id=?",
+                (consume, row["id"])
+            )
+            remaining -= consume
+            if remaining <= 0:
+                break
+        db.commit()
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
@@ -131,7 +188,7 @@ def get_current_user():
         return db.execute("SELECT * FROM users WHERE id=?", (session["user_id"],)).fetchone()
 
 
-# ── API関数（main.pyから流用） ────────────────────────────────
+# ── API関数 ───────────────────────────────────────────────────
 def call_elevenlabs(api_key, voice_id, text):
     url = (f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
            "?output_format=mp3_44100_64")
@@ -214,23 +271,18 @@ def heygen_list_avatars(api_key):
 
 
 # ── バックグラウンドワーカー ───────────────────────────────────
-def video_worker(job_id, user_id, text, avatar_path):
+def video_worker(job_id, user_id, text):
     el_key    = get_setting("elevenlabs_api_key")
     el_voice  = get_setting("elevenlabs_voice_id")
     hg_key    = get_setting("heygen_api_key")
     hg_avatar = get_setting("heygen_avatar_id")
 
-    # ユーザー固有アバターが設定されていれば優先
     with get_db() as db:
         user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
-    user_avatar = None
-    if user and user["note"]:  # noteフィールドにアバターIDを保存
-        try:
-            info = json.loads(user["note"])
-            user_avatar = info.get("avatar_id") or hg_avatar
-        except Exception:
-            user_avatar = hg_avatar
-    else:
+    try:
+        info = json.loads(user["note"] or "{}")
+        user_avatar = info.get("avatar_id") or hg_avatar
+    except Exception:
         user_avatar = hg_avatar
 
     def update_status(status, **kwargs):
@@ -257,7 +309,10 @@ def video_worker(job_id, user_id, text, avatar_path):
         update_status("waiting")
         video_url, duration_sec = heygen_poll_video(hg_key, video_id)
 
-        # 使用量を記録
+        # クレジット消費（秒→分）
+        minutes_used = (duration_sec or len(text) * 0.06) / 60.0
+        use_credit(user_id, minutes_used)
+
         with get_db() as db:
             db.execute(
                 "INSERT INTO usage_log (user_id, seconds, video_id) VALUES (?,?,?)",
@@ -304,10 +359,13 @@ def logout():
 @login_required
 def dashboard():
     user = get_current_user()
-    plan_info = PLANS.get(user["plan"], PLANS["light"])
-    used_min  = get_used_minutes(user["id"])
-    limit_min = plan_info["minutes"]
-    remaining = max(0, limit_min - used_min)
+    credit = get_credit_info(user["id"])
+
+    # 管理者は無制限
+    if user["is_admin"]:
+        credit["total"]     = 99999
+        credit["remaining"] = 99999
+        credit["used"]      = 0
 
     # 最近のジョブ
     with get_db() as db:
@@ -316,7 +374,7 @@ def dashboard():
             (user["id"],)
         ).fetchall()
 
-    # ユーザーのアバターID
+    # アバターID
     user_avatar_id = get_setting("heygen_avatar_id")
     try:
         info = json.loads(user["note"] or "{}")
@@ -324,12 +382,17 @@ def dashboard():
     except Exception:
         pass
 
+    percent = 0
+    if credit["total"] > 0 and credit["total"] < 99999:
+        percent = min(100, int(credit["used"] / credit["total"] * 100))
+
     return render_template("dashboard.html",
-        user=user, plan=plan_info,
-        used_min=round(used_min, 1),
-        limit_min=limit_min,
-        remaining=round(remaining, 1),
-        percent=min(100, int(used_min / max(limit_min,1) * 100)),
+        user=user,
+        used_min=round(credit["used"], 1),
+        limit_min=round(credit["total"], 1),
+        remaining=round(credit["remaining"], 1),
+        percent=percent,
+        expires_at=credit["expires_at"],
         jobs=jobs,
         max_chars=MAX_CHARS,
         user_avatar_id=user_avatar_id,
@@ -339,12 +402,10 @@ def dashboard():
 @login_required
 def generate():
     user = get_current_user()
-    plan_info = PLANS.get(user["plan"], PLANS["light"])
-    used_min  = get_used_minutes(user["id"])
-    remaining = plan_info["minutes"] - used_min
+    credit = get_credit_info(user["id"])
 
-    if remaining <= 0:
-        return jsonify({"error": "今月の使用上限に達しています。プランのアップグレードをご検討ください。"}), 403
+    if not user["is_admin"] and credit["remaining"] <= 0:
+        return jsonify({"error": "クレジットが不足しています。追加購入をご検討ください。"}), 403
 
     text = request.form.get("text","").strip()
     if not text:
@@ -352,7 +413,6 @@ def generate():
     if len(text) > MAX_CHARS:
         return jsonify({"error": f"文字数が上限（{MAX_CHARS}文字）を超えています"}), 400
 
-    # API設定チェック
     if not get_setting("elevenlabs_api_key") or not get_setting("heygen_api_key"):
         return jsonify({"error": "管理者がAPIキーを設定していません"}), 500
 
@@ -366,7 +426,7 @@ def generate():
 
     threading.Thread(
         target=video_worker,
-        args=(job_id, user["id"], text, None),
+        args=(job_id, user["id"], text),
         daemon=True
     ).start()
 
@@ -394,25 +454,11 @@ def job_status(job_id):
     }
 
     return jsonify({
-        "status":   job["status"],
-        "message":  STATUS_MSG.get(job["status"], job["status"]),
+        "status":    job["status"],
+        "message":   STATUS_MSG.get(job["status"], job["status"]),
         "video_url": job["video_url"],
-        "error":    job["error"],
+        "error":     job["error"],
     })
-
-@app.route("/avatar/upload", methods=["POST"])
-@login_required
-def avatar_upload():
-    """ユーザーがアバター画像をアップロード（将来的にHeyGenカスタムアバター用）"""
-    if "file" not in request.files:
-        return jsonify({"error": "ファイルがありません"}), 400
-    f = request.files["file"]
-    if not f.filename or not allowed_file(f.filename):
-        return jsonify({"error": "PNG/JPG/WEBPのみ対応しています"}), 400
-    filename = secure_filename(f"{session['user_id']}_{int(time.time())}_{f.filename}")
-    save_path = os.path.join(UPLOAD_DIR, filename)
-    f.save(save_path)
-    return jsonify({"message": "アップロード完了", "filename": filename})
 
 
 # ── 管理者画面 ─────────────────────────────────────────────────
@@ -421,20 +467,30 @@ def avatar_upload():
 def admin():
     with get_db() as db:
         users = db.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
+
+    # 各ユーザーのクレジット情報を取得
+    user_credits = {}
+    for u in users:
+        user_credits[u["id"]] = get_credit_info(u["id"])
+
     settings = {
-        "elevenlabs_api_key": get_setting("elevenlabs_api_key"),
+        "elevenlabs_api_key":  get_setting("elevenlabs_api_key"),
         "elevenlabs_voice_id": get_setting("elevenlabs_voice_id"),
-        "heygen_api_key": get_setting("heygen_api_key"),
-        "heygen_avatar_id": get_setting("heygen_avatar_id"),
+        "heygen_api_key":      get_setting("heygen_api_key"),
+        "heygen_avatar_id":    get_setting("heygen_avatar_id"),
     }
-    return render_template("admin.html", users=users, settings=settings, plans=PLANS)
+    return render_template("admin.html",
+        users=users, settings=settings,
+        plans=PLANS, user_credits=user_credits)
 
 @app.route("/admin/user/add", methods=["POST"])
 @admin_required
 def admin_add_user():
     username = request.form.get("username","").strip()
     password = request.form.get("password","").strip()
-    plan     = request.form.get("plan","light")
+    plan     = request.form.get("plan","starter")
+    minutes  = float(request.form.get("minutes", PLANS.get(plan,{}).get("minutes",30)))
+
     if not username or not password:
         flash("ユーザー名とパスワードは必須です")
         return redirect(url_for("admin"))
@@ -445,9 +501,22 @@ def admin_add_user():
                 (username, generate_password_hash(password), plan)
             )
             db.commit()
-        flash(f"ユーザー「{username}」を追加しました")
+            user = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+        # クレジット付与
+        if not plan == "admin":
+            add_credit(user["id"], minutes)
+        flash(f"ユーザー「{username}」を追加しました（{minutes}分のクレジット付与）")
     except sqlite3.IntegrityError:
         flash("そのユーザー名は既に使われています")
+    return redirect(url_for("admin"))
+
+@app.route("/admin/user/<int:user_id>/add_credit", methods=["POST"])
+@admin_required
+def admin_add_credit(user_id):
+    minutes = float(request.form.get("minutes", 30))
+    days    = int(request.form.get("days", CREDIT_DAYS))
+    add_credit(user_id, minutes, days)
+    flash(f"{minutes}分のクレジットを追加しました（{days}日間有効）")
     return redirect(url_for("admin"))
 
 @app.route("/admin/user/<int:user_id>/toggle", methods=["POST"])
@@ -455,15 +524,6 @@ def admin_add_user():
 def admin_toggle_user(user_id):
     with get_db() as db:
         db.execute("UPDATE users SET active = 1-active WHERE id=?", (user_id,))
-        db.commit()
-    return redirect(url_for("admin"))
-
-@app.route("/admin/user/<int:user_id>/plan", methods=["POST"])
-@admin_required
-def admin_change_plan(user_id):
-    plan = request.form.get("plan","light")
-    with get_db() as db:
-        db.execute("UPDATE users SET plan=? WHERE id=?", (plan, user_id))
         db.commit()
     return redirect(url_for("admin"))
 
@@ -481,16 +541,18 @@ def admin_save_settings():
 @admin_required
 def admin_usage():
     with get_db() as db:
-        rows = db.execute("""
-            SELECT u.username, u.plan,
-                   COALESCE(SUM(l.seconds),0)/60.0 as used_min,
-                   COUNT(l.id) as count
-            FROM users u
-            LEFT JOIN usage_log l ON l.user_id=u.id
-                AND l.created_at >= date('now','start of month')
-            GROUP BY u.id
-            ORDER BY used_min DESC
-        """).fetchall()
+        users = db.execute("SELECT * FROM users ORDER BY username").fetchall()
+    rows = []
+    for u in users:
+        c = get_credit_info(u["id"])
+        rows.append({
+            "username":   u["username"],
+            "plan":       u["plan"],
+            "total":      c["total"],
+            "used":       c["used"],
+            "remaining":  c["remaining"],
+            "expires_at": c["expires_at"],
+        })
     return render_template("usage.html", rows=rows, plans=PLANS)
 
 

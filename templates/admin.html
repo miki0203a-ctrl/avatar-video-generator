@@ -104,26 +104,30 @@
 
   <!-- ユーザー追加 -->
   <div class="card">
-    <h2>➕ ユーザーを追加</h2>
+    <h2>➕ ユーザーを追加（クレジット付与）</h2>
     <form method="post" action="/admin/user/add">
       <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
         <div>
           <label>ユーザー名</label>
-          <input type="text" name="username" placeholder="username" style="width:180px">
+          <input type="text" name="username" placeholder="username" style="width:160px">
         </div>
         <div>
           <label>パスワード</label>
-          <input type="text" name="password" placeholder="初期パスワード" style="width:180px">
+          <input type="text" name="password" placeholder="初期パスワード" style="width:160px">
         </div>
         <div>
           <label>プラン</label>
-          <select name="plan" style="width:140px">
+          <select name="plan" style="width:150px">
             {% for key, p in plans.items() %}
               {% if key != 'admin' %}
-                <option value="{{ key }}">{{ p.name }}（月{{ p.price }}円）</option>
+                <option value="{{ key }}">{{ p.name }}（{{ p.minutes }}分）</option>
               {% endif %}
             {% endfor %}
           </select>
+        </div>
+        <div>
+          <label>付与分数（上書き可）</label>
+          <input type="number" name="minutes" placeholder="例:30" style="width:100px" min="1">
         </div>
         <button type="submit" class="btn btn-primary">追加</button>
       </div>
@@ -137,9 +141,11 @@
       <thead>
         <tr>
           <th>ユーザー名</th>
-          <th>プラン</th>
+          <th>クレジット残高</th>
+          <th>有効期限</th>
           <th>状態</th>
           <th>作成日</th>
+          <th>クレジット追加</th>
           <th>操作</th>
         </tr>
       </thead>
@@ -151,15 +157,21 @@
             {% if u['is_admin'] %}<span class="badge badge-admin" style="margin-left:6px">管理者</span>{% endif %}
           </td>
           <td>
-            <form method="post" action="/admin/user/{{ u['id'] }}/plan"
-                  style="display:inline-flex; gap:6px; align-items:center;">
-              <select name="plan" class="plan-select">
-                {% for key, p in plans.items() %}
-                  <option value="{{ key }}" {% if u['plan']==key %}selected{% endif %}>{{ p.name }}</option>
-                {% endfor %}
-              </select>
-              <button type="submit" class="btn btn-sm btn-primary">変更</button>
-            </form>
+            {% if not u['is_admin'] %}
+              {% set c = user_credits[u['id']] %}
+              <span style="color:{% if c.remaining <= 0 %}#f87171{% else %}#10b981{% endif %}">
+                {{ '%.1f'|format(c.remaining) }}分
+              </span>
+              <span style="color:#94a3b8; font-size:11px;">/ {{ '%.0f'|format(c.total) }}分</span>
+            {% else %}
+              <span style="color:#818cf8">無制限</span>
+            {% endif %}
+          </td>
+          <td style="color:#94a3b8; font-size:12px;">
+            {% if not u['is_admin'] %}
+              {% set c = user_credits[u['id']] %}
+              {{ c.expires_at[:10] if c.expires_at else '－' }}
+            {% endif %}
           </td>
           <td>
             <span class="badge {% if u['active'] %}badge-active{% else %}badge-inactive{% endif %}">
@@ -167,6 +179,16 @@
             </span>
           </td>
           <td style="color:#94a3b8; font-size:12px;">{{ u['created_at'][:10] }}</td>
+          <td>
+            {% if not u['is_admin'] %}
+            <form method="post" action="/admin/user/{{ u['id'] }}/add_credit"
+                  style="display:inline-flex; gap:6px; align-items:center;">
+              <input type="number" name="minutes" placeholder="分数" style="width:70px; padding:4px 8px; background:#252538; border:1px solid #3f3f5a; border-radius:6px; color:#e2e8f0; font-size:12px;" min="1">
+              <input type="hidden" name="days" value="180">
+              <button type="submit" class="btn btn-sm btn-success">追加</button>
+            </form>
+            {% endif %}
+          </td>
           <td>
             {% if not u['is_admin'] %}
             <form method="post" action="/admin/user/{{ u['id'] }}/toggle" style="display:inline">
