@@ -182,6 +182,38 @@
     transition: all 0.2s;
   }
   .admin-link:hover { color: #e2e8f0; border-color: #6366f1; }
+  /* アバター選択 */
+  .avatar-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .avatar-card {
+    position: relative;
+    cursor: pointer;
+    border-radius: 10px;
+    border: 2px solid #3f3f5a;
+    overflow: hidden;
+    transition: border-color 0.2s, transform 0.15s;
+    background: #252538;
+  }
+  .avatar-card:hover { border-color: #6366f1; transform: translateY(-2px); }
+  .avatar-card.selected { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.3); }
+  .avatar-card img { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; }
+  .avatar-card .avatar-name {
+    font-size: 10px; color: #94a3b8; text-align: center;
+    padding: 4px 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .avatar-card input[type="radio"] { display: none; }
+  .check-mark {
+    position: absolute; top: 5px; right: 5px;
+    width: 20px; height: 20px;
+    background: #6366f1; border-radius: 50%;
+    display: none; align-items: center; justify-content: center;
+    font-size: 11px; color: #fff;
+  }
+  .avatar-card.selected .check-mark { display: flex; }
 </style>
 </head>
 <body>
@@ -221,6 +253,36 @@
   <!-- 動画生成 -->
   <div class="main-card">
     <div class="section-title">動画を生成する</div>
+
+    {% if avatars %}
+    <!-- アバター選択 -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:13px; color:#94a3b8; font-weight:600; margin-bottom:4px;">
+        🎭 アバターを選択
+        {% if user['plan'] == 'trial' %}
+          <span style="font-size:11px; color:#6366f1; margin-left:6px;">（お試し：5体から選択）</span>
+        {% endif %}
+      </div>
+      <div class="avatar-grid" id="avatarGrid">
+        {% for av in avatars %}
+        <label class="avatar-card {% if loop.first %}selected{% endif %}" id="card-{{ av.avatar_id }}">
+          <input type="radio" name="avatar_choice" value="{{ av.avatar_id }}"
+                 {% if loop.first %}checked{% endif %}
+                 onchange="selectAvatar('{{ av.avatar_id }}')">
+          {% if av.preview_image_url %}
+            <img src="{{ av.preview_image_url }}" alt="{{ av.avatar_name }}"
+                 onerror="this.style.display='none'">
+          {% else %}
+            <div style="aspect-ratio:3/4; background:#3f3f5a; display:flex; align-items:center; justify-content:center; font-size:24px;">🧑</div>
+          {% endif %}
+          <div class="check-mark">✓</div>
+          <div class="avatar-name">{{ av.avatar_name or av.avatar_id }}</div>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     <textarea id="textInput" placeholder="ここにセリフを入力してください..."
               maxlength="{{ max_chars }}"></textarea>
     <div class="char-count" id="charCount">0 / {{ max_chars }}</div>
@@ -228,7 +290,7 @@
             {% if remaining <= 0 %}disabled{% endif %}
             onclick="startGenerate()">
       {% if remaining <= 0 %}
-        ⚠️ 今月の上限に達しています
+        ⚠️ クレジットが不足しています
       {% else %}
         ▶ 動画を生成する
       {% endif %}
@@ -287,6 +349,12 @@ document.getElementById('textInput').addEventListener('input', function() {
   el.className = 'char-count' + (len > maxChars ? ' over' : '');
 });
 
+function selectAvatar(avatarId) {
+  document.querySelectorAll('.avatar-card').forEach(c => c.classList.remove('selected'));
+  const card = document.getElementById('card-' + avatarId);
+  if (card) card.classList.add('selected');
+}
+
 async function startGenerate() {
   const text = document.getElementById('textInput').value.trim();
   if (!text) { alert('テキストを入力してください'); return; }
@@ -301,6 +369,10 @@ async function startGenerate() {
 
   const fd = new FormData();
   fd.append('text', text);
+
+  // 選択中のアバターID
+  const avatarRadio = document.querySelector('input[name="avatar_choice"]:checked');
+  if (avatarRadio) fd.append('avatar_id', avatarRadio.value);
 
   try {
     const res = await fetch('/generate', { method: 'POST', body: fd });

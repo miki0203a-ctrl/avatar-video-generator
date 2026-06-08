@@ -271,7 +271,7 @@ def heygen_list_avatars(api_key):
 
 
 # ── バックグラウンドワーカー ───────────────────────────────────
-def video_worker(job_id, user_id, text):
+def video_worker(job_id, user_id, text, selected_avatar=""):
     el_key    = get_setting("elevenlabs_api_key")
     el_voice  = get_setting("elevenlabs_voice_id")
     hg_key    = get_setting("heygen_api_key")
@@ -279,11 +279,16 @@ def video_worker(job_id, user_id, text):
 
     with get_db() as db:
         user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
-    try:
-        info = json.loads(user["note"] or "{}")
-        user_avatar = info.get("avatar_id") or hg_avatar
-    except Exception:
-        user_avatar = hg_avatar
+
+    # 優先順位: フォームで選択 > ユーザー個別設定 > デフォルト
+    if selected_avatar:
+        user_avatar = selected_avatar
+    else:
+        try:
+            info = json.loads(user["note"] or "{}")
+            user_avatar = info.get("avatar_id") or hg_avatar
+        except Exception:
+            user_avatar = hg_avatar
 
     def update_status(status, **kwargs):
         with get_db() as db:
@@ -374,13 +379,29 @@ def dashboard():
             (user["id"],)
         ).fetchall()
 
-    # アバターID
-    user_avatar_id = get_setting("heygen_avatar_id")
+    # アバターID（ユーザー個別設定 or デフォルト）
+    default_avatar_id = get_setting("heygen_avatar_id")
+    user_avatar_id = default_avatar_id
     try:
         info = json.loads(user["note"] or "{}")
-        user_avatar_id = info.get("avatar_id") or user_avatar_id
+        user_avatar_id = info.get("avatar_id") or default_avatar_id
     except Exception:
         pass
+
+    # アバター一覧取得（お試し：最大5件、スタンダード以上：全件）
+    avatars = []
+    hg_key = get_setting("heygen_api_key")
+    if hg_key:
+        try:
+            all_avatars = heygen_list_avatars(hg_key)
+            plan = user["plan"]
+            if plan in ("standard", "pro") or user["is_admin"]:
+                avatars = all_avatars[:20]  # 最大20件
+            else:
+                # お試し：最大5件
+                avatars = all_avatars[:5]
+        except Exception:
+            avatars = []
 
     percent = 0
     if credit["total"] > 0 and credit["total"] < 99999:
@@ -396,6 +417,8 @@ def dashboard():
         jobs=jobs,
         max_chars=MAX_CHARS,
         user_avatar_id=user_avatar_id,
+        avatars=avatars,
+        plan=PLANS.get(user["plan"], PLANS["trial"]),
     )
 
 @app.route("/generate", methods=["POST"])
@@ -416,6 +439,9 @@ def generate():
     if not get_setting("elevenlabs_api_key") or not get_setting("heygen_api_key"):
         return jsonify({"error": "管理者がAPIキーを設定していません"}), 500
 
+    # アバターID（フォームで選択されたもの、なければユーザーデフォルト）
+    selected_avatar = request.form.get("avatar_id", "").strip()
+
     job_id = str(uuid.uuid4())
     with get_db() as db:
         db.execute(
@@ -426,7 +452,7 @@ def generate():
 
     threading.Thread(
         target=video_worker,
-        args=(job_id, user["id"], text),
+        args=(job_id, user["id"], text, selected_avatar),
         daemon=True
     ).start()
 
