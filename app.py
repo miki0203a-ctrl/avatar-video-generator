@@ -191,11 +191,16 @@ def get_current_user():
 # ── API関数 ───────────────────────────────────────────────────
 def call_elevenlabs(api_key, voice_id, text):
     url = (f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-           "?output_format=mp3_44100_64")
+           "?output_format=mp3_44100_128")
     payload = json.dumps({
         "text": text,
         "model_id": "eleven_multilingual_v2",
-        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+        "voice_settings": {
+            "stability": 0.65,
+            "similarity_boost": 0.85,
+            "style": 0.3,
+            "use_speaker_boost": True,
+        },
     }).encode("utf-8")
     req = urllib.request.Request(url, data=payload, method="POST",
           headers={"Accept": "audio/mpeg",
